@@ -1,8 +1,12 @@
+#include <iostream>
+
 #include <QMainWindow>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QVBoxLayout>
 #include <QTreeWidget>
+#include <QFileDialog>
+#include <thread>
 
 
 class QtSfvWindow : public QMainWindow
@@ -16,7 +20,7 @@ private slots:
 public:
 	QtSfvWindow();
 
-private:
 	QTreeWidget* treeWidget;
 	QList<QTreeWidgetItem*> items;
+	std::thread* workerthread = nullptr;
 };
