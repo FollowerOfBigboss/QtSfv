@@ -1,15 +1,20 @@
 #include "appwindow.h"
 
+#include "crc32/CRC.h"
+
 std::vector<int> MessageQueue;
+QString filedirectory;
 
 void SfvWorkerThread(void* ptr);
-bool TerminateThread = false;
+const bool TerminateThread = true;
 
 enum ThreadMessages : int
 {
 	play,
 	pause,
-	reset
+	reset,
+	load,
+	die
 };
 
 QtSfvWindow::QtSfvWindow()
@@ -57,18 +62,37 @@ QtSfvWindow::QtSfvWindow()
 
 void QtSfvWindow::OnActionOpen()
 {
-	auto name = QFileDialog::getOpenFileName(this, "Open Image", "", "SFV Files (*.sfv)");
+	QString name = QFileDialog::getOpenFileName(this, "Open Image", "", "SFV Files (*.sfv)");
+	QDir d = QFileInfo(name).absoluteDir();
+	QString absolute = d.absolutePath();
 
-	QFile file(name);
-	if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
-		return;
 	
+	QFile file(name);
+	if (!file.open(QIODevice::ReadOnly))
+	{
+		QMessageBox::critical(this, "Error", "File couldn't opened!");
+		return;
+	}
+
+	MessageQueue.push_back(ThreadMessages::reset);
+	filedirectory = absolute;
+
+	for (int i = 0; i < items.count(); i++)
+	{
+		delete items[i];
+	}
+
 	items.clear();
 	treeWidget->clear();
+
 
 	while (!file.atEnd()) 
 	{
 		QByteArray line = file.readLine();
+		
+		if (line.startsWith(';') == true)
+			continue;
+
 		QByteArrayList sline =  line.split(' ');
 
 		// Remove newline character
@@ -83,6 +107,7 @@ void QtSfvWindow::OnActionOpen()
 	treeWidget->insertTopLevelItems(0, items);
 
 	MessageQueue.push_back(ThreadMessages::reset);
+	MessageQueue.push_back(ThreadMessages::load);
 	MessageQueue.push_back(ThreadMessages::play);
 }
 
@@ -93,81 +118,82 @@ void QtSfvWindow::OnActionClose()
 
 void SfvWorkerThread(void* ptr)
 {
-	static int itemcounter = 0;
-	static bool go = false;
-	static int countto = 0;
+static int itemcounter = 0;
+static bool go = false;
+static int countto = 0;
 
-	while (!TerminateThread)
+
+	while (TerminateThread)
 	{
 		if (MessageQueue.size() > 0)
 		{
-			std::cout << "Messages at queue" << "\n";
-
-			for (int i = 0; i < MessageQueue.size(); i++)
-			{
-				std::cout << "Message[" << i << "]" << "=" << MessageQueue[i] << "\n";
-			}
-
 			// Play
 			if (MessageQueue[0] == ThreadMessages::play)
 			{
 				go = true;
+				printf("Play message operation will continue!\n");
 			}
 
 			// Pause
-			if (MessageQueue[0] == ThreadMessages::pause)
+			else if (MessageQueue[0] == ThreadMessages::pause)
 			{
 				go = false;
+				printf("Pause message operation will stop!\n");
 			}
 
 			// Reset
-			if (MessageQueue[0] == ThreadMessages::reset)
+			else if (MessageQueue[0] == ThreadMessages::reset)
+			{
+				go = false;
+				countto = 0;
+				itemcounter = 0;
+				printf("Reset message received all statics are zeroed!\n");
+			}
+
+			// load
+			else if (MessageQueue[0] == ThreadMessages::load)
 			{
 				countto = ((QtSfvWindow*)ptr)->items.count();
-				go = false;
-				itemcounter = 0;
+				printf("Load message received countto set!\n");
+
+			}
+			else
+			{
+				printf("Unknown message %i\n", MessageQueue[0]);
 			}
 
 			MessageQueue.erase(MessageQueue.begin());
-		
 		}
-
+	
 		if (go == true)
 		{
 			if (itemcounter == countto)
 			{
 				go = false;
-				break;
-
+				itemcounter = 0;
+				countto = 0;
 			}
 
-			std::cout << itemcounter << "\n";
-			std::cout << ((QtSfvWindow*)ptr)->items[itemcounter]->text(0).toStdString() << "\n";
-			((QtSfvWindow*)ptr)->items[itemcounter]->setText(3, "Yikes!");
-			itemcounter++;
-			_sleep(1000);
+			if (itemcounter < countto)
+			{
+				QString filename = QDir::cleanPath(filedirectory + QDir::separator() + ((QtSfvWindow*)ptr)->items[itemcounter]->text(0));
+				QFile file(filename);
+				if (file.open(QIODevice::ReadOnly) != true)
+				{
+					((QtSfvWindow*)ptr)->items[itemcounter]->setText(3, "File couldn't open!");
+				}
 
-			// for (; itemcounter < ((QtSfvWindow*)ptr)->items.count(); itemcounter++)
-			// {
-			// 	if (MessageQueue.size() > 0)
-			// 	{
-			// 		if (MessageQueue[0] == ThreadMessages::pause || MessageQueue[0] == ThreadMessages::reset)
-			// 			break;
-			// 
-			// 		MessageQueue.pop_back();
-			// 	}
-			// 
-			// 	std::cout << ((QtSfvWindow*)ptr)->items[itemcounter]->text(0).toStdString() << "\n";
-			// 	((QtSfvWindow*)ptr)->items[itemcounter]->setText(3, "Yikes!");
-//			// 	_sleep(1000);
-			// }
-			// if (MessageQueue[0] != ThreadMessages::pause)
-			// {
-			// 	go = false;
-			// 	itemcounter = 0;
-			// }
+				else
+				{
+					QByteArray content = file.readAll();
+					uint32_t crc = CRC::Calculate(content.constData(), content.size(), CRC::CRC_32());
 
+					((QtSfvWindow*)ptr)->items[itemcounter]->setText(2, QString::number(crc, 16));
+					((QtSfvWindow*)ptr)->items[itemcounter]->setText(3, "SUCCESS");
+				}
+
+				itemcounter++;
+			}
 		}
 	}
-
 }
