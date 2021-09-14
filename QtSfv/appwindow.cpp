@@ -1,21 +1,6 @@
 #include "appwindow.h"
+#include "sfvthread.h"
 
-#include "crc32/CRC.h"
-
-std::vector<int> MessageQueue;
-QString filedirectory;
-
-void SfvWorkerThread(void* ptr);
-const bool TerminateThread = true;
-
-enum ThreadMessages : int
-{
-	play,
-	pause,
-	reset,
-	load,
-	die
-};
 
 QtSfvWindow::QtSfvWindow()
 {
@@ -37,11 +22,9 @@ QtSfvWindow::QtSfvWindow()
 	connect(closeaction, &QAction::triggered, this, &QtSfvWindow::OnActionClose);
 	connect(aboutaction, &QAction::triggered, this, [&] { QMessageBox
 		::information(this, "About", "This program written by FollowerOfBigboss", QMessageBox::StandardButton::Ok, QMessageBox::StandardButton::Ok);});
+	
 	connect(aboutqtaction, &QAction::triggered, this, [&] { QMessageBox::aboutQt(this); });
 	connect(exitaction, &QAction::triggered, this, [&] { this->close(); });
-
-	connect(playaction, &QAction::triggered, this, [&] { MessageQueue.push_back(ThreadMessages::play); });
-	connect(pauseaction, &QAction::triggered, this, [&] { MessageQueue.push_back(ThreadMessages::pause); });
 
 	treeWidget = new QTreeWidget(this);
 	treeWidget->setRootIsDecorated(false);
@@ -52,63 +35,187 @@ QtSfvWindow::QtSfvWindow()
 	QStringList headers = {"File Name","CRC","Calculated CRC","Status"};
 	treeWidget->setHeaderLabels(headers);
 
-
 	this->setCentralWidget(treeWidget);
 	treeWidget->expandAll();
 
-	workerthread = new std::thread(SfvWorkerThread, this);
 }
 
+void QtSfvWindow::closeEvent(QCloseEvent* closeEvent)
+{
+
+}
+
+bool QtSfvWindow::ParseLine(QByteArray& line)
+{
+	if (line.startsWith(';') == true)
+		return false;
+
+	QByteArrayList sline = line.split(' ');
+	slookup.push_back(sline[0]);
+
+	// Remove newline character
+	sline[1].remove(sline[1].indexOf('\n'), 1);
+
+	QTreeWidgetItem* item = new QTreeWidgetItem();
+	item->setText(0, sline[0]);
+	item->setText(1, sline[1]);
+	items.append(item);
+
+	return true;
+}
 
 void QtSfvWindow::OnActionOpen()
 {
-	QString name = QFileDialog::getOpenFileName(this, "Open Image", "", "SFV Files (*.sfv)");
-	QDir d = QFileInfo(name).absoluteDir();
-	QString absolute = d.absolutePath();
+	QString filename = QFileDialog::getOpenFileName(this, "Open Image", "", "SFV Files (*.sfv)");
 
-	
-	QFile file(name);
-	if (!file.open(QIODevice::ReadOnly))
+	qDebug() << filename;
+	file = new QFile(filename);
+	if (!file->open(QIODevice::ReadOnly))
 	{
 		QMessageBox::critical(this, "Error", "File couldn't opened!");
 		return;
 	}
 
-	MessageQueue.push_back(ThreadMessages::reset);
-	filedirectory = absolute;
+	QDir abDir = QFileInfo(filename).absoluteDir();
+	QString abPath = abDir.absolutePath();
+	SfvPath = abPath;
 
-	for (int i = 0; i < items.count(); i++)
-	{
-		delete items[i];
-	}
+	qDebug() << abPath;
 
-	items.clear();
+
 	treeWidget->clear();
+	items.clear();
 
-
-	while (!file.atEnd()) 
+	int linecount = 0;
+	while (!file->atEnd()) 
 	{
-		QByteArray line = file.readLine();
-		
-		if (line.startsWith(';') == true)
-			continue;
-
-		QByteArrayList sline =  line.split(' ');
-
-		// Remove newline character
-		sline[1].remove(sline[1].indexOf('\n'), 1);
-
-
-		QTreeWidgetItem* item = new QTreeWidgetItem();
-	 	item->setText(0, sline[0]);
-		item->setText(1, sline[1]);
-		items.append(item);
+		QByteArray line = file->readLine();
+		if (this->ParseLine(line) == true) linecount++;
 	}
+
 	treeWidget->insertTopLevelItems(0, items);
 
-	MessageQueue.push_back(ThreadMessages::reset);
-	MessageQueue.push_back(ThreadMessages::load);
-	MessageQueue.push_back(ThreadMessages::play);
+	int parts = linecount / 5;
+	int remains = 0;
+	int isitremains = linecount % 5;
+	if (isitremains > 0)
+		remains = isitremains;
+
+	SfvThread* sthread;
+
+	int last = 0;
+	int TIDCounter = 0;
+
+	if (remains != 0)
+	{
+		sthread = new SfvThread[parts + 1];
+		
+		for (int i = 0; i < parts; i++)
+		{
+			sthread[i].TID = i;
+			sthread[i].beg = last;
+			for (int x = 0; x < 5; x++)
+			{
+					sthread[i].list.append(QDir::cleanPath(SfvPath + QDir::separator() + slookup[last]));
+					last++;
+			}
+#ifdef _DEBUG
+			std::cout << "Thread " << TIDCounter << "\n";
+			for (auto titer : sthread[i].list)
+			{
+				std::cout << titer.toStdString() << "\n";
+			}
+			std::cout << "Thread " << TIDCounter << "End\n";
+#endif
+
+			sthread[i].end = last;
+			connect(&sthread[i], &SfvThread::InsertCRC, this, &QtSfvWindow::OnInsertCrc);
+			sthread[i].start();
+			TIDCounter++;
+		}
+
+		sthread[parts].TID = TIDCounter;
+		sthread[parts].beg = last;
+		for (int i = 0; i < remains; i++)
+		{
+			sthread[parts].list.append(slookup[last]);
+			last++;
+		}
+		sthread[parts].end = last;
+		connect(&sthread[parts], &SfvThread::InsertCRC, this, &QtSfvWindow::OnInsertCrc);
+		sthread[parts].start();
+
+#ifdef _DEBUG
+		std::cout << "Thread " << TIDCounter << "\n";
+		for (auto titer : sthread[parts].list)
+		{
+			std::cout << titer.toStdString() << "\n";
+		}
+		std::cout << "Thread " << TIDCounter << "End\n";
+#endif
+
+//			for (int x = 0; x < parts; x++)
+//			{
+//				qDebug() << "Part " << x << " Begin";
+//
+//				for (int a = 0; a < 5; a++)
+//				{
+//					qDebug() << slookup[last];
+//					sthread[i].list.append(slookup[last]);
+//					last++;
+//				}
+//
+//				qDebug() << "Part " << x << " End\n";
+//
+//			}
+//
+//			for (int x = 0; x < remains; x++)
+//			{
+//				sthread[i].list.append(slookup[last]);
+//				last++;
+//			}
+//			
+
+	// 		for (auto q: sthread->list)
+	// 		{
+	// 			qDebug() << q;
+	// 		}
+
+	}
+	else
+	{
+		sthread = new SfvThread[parts];
+		for (int i = 0; i < parts; i++)
+		{
+			sthread[i].TID = TIDCounter;
+			sthread[i].beg = last;
+			for (int x = 0; x < 5; x++)
+			{
+				sthread[i].list.append(QDir::cleanPath(SfvPath + QDir::separator() +  slookup[last]));
+				last++;
+			}
+			sthread[i].end = last;
+
+#ifdef _DEBUG
+			std::cout << "Thread " << TIDCounter << "\n";
+			for (auto titer : sthread[i].list)
+			{
+				std::cout << titer.toStdString() << "\n";
+			}
+			std::cout << "Thread " << TIDCounter << "End\n";
+#endif
+
+			connect(&sthread[i], &SfvThread::InsertCRC, this, &QtSfvWindow::OnInsertCrc);
+			sthread[i].start();
+			TIDCounter++;
+		}
+
+	}
+// 	connect(sthread, &SfvThread::InsertCRC, this, &QtSfvWindow::OnInsertCrc);
+//	sthread->start();
+
+	slookup.clear();
+	delete file;
 }
 
 void QtSfvWindow::OnActionClose()
@@ -116,84 +223,10 @@ void QtSfvWindow::OnActionClose()
 
 }
 
-void SfvWorkerThread(void* ptr)
+void QtSfvWindow::OnInsertCrc(int TID, int item, uint32_t crc)
 {
-static int itemcounter = 0;
-static bool go = false;
-static int countto = 0;
+	items[item]->setText(2, QString::number(crc, 16));
 
-
-	while (TerminateThread)
-	{
-		if (MessageQueue.size() > 0)
-		{
-			// Play
-			if (MessageQueue[0] == ThreadMessages::play)
-			{
-				go = true;
-				printf("Play message operation will continue!\n");
-			}
-
-			// Pause
-			else if (MessageQueue[0] == ThreadMessages::pause)
-			{
-				go = false;
-				printf("Pause message operation will stop!\n");
-			}
-
-			// Reset
-			else if (MessageQueue[0] == ThreadMessages::reset)
-			{
-				go = false;
-				countto = 0;
-				itemcounter = 0;
-				printf("Reset message received all statics are zeroed!\n");
-			}
-
-			// load
-			else if (MessageQueue[0] == ThreadMessages::load)
-			{
-				countto = ((QtSfvWindow*)ptr)->items.count();
-				printf("Load message received countto set!\n");
-
-			}
-			else
-			{
-				printf("Unknown message %i\n", MessageQueue[0]);
-			}
-
-			MessageQueue.erase(MessageQueue.begin());
-		}
-	
-		if (go == true)
-		{
-			if (itemcounter == countto)
-			{
-				go = false;
-				itemcounter = 0;
-				countto = 0;
-			}
-
-			if (itemcounter < countto)
-			{
-				QString filename = QDir::cleanPath(filedirectory + QDir::separator() + ((QtSfvWindow*)ptr)->items[itemcounter]->text(0));
-				QFile file(filename);
-				if (file.open(QIODevice::ReadOnly) != true)
-				{
-					((QtSfvWindow*)ptr)->items[itemcounter]->setText(3, "File couldn't open!");
-				}
-
-				else
-				{
-					QByteArray content = file.readAll();
-					uint32_t crc = CRC::Calculate(content.constData(), content.size(), CRC::CRC_32());
-
-					((QtSfvWindow*)ptr)->items[itemcounter]->setText(2, QString::number(crc, 16));
-					((QtSfvWindow*)ptr)->items[itemcounter]->setText(3, "SUCCESS");
-				}
-
-				itemcounter++;
-			}
-		}
-	}
+	// 	std::cout << "TID is " << TID << "\n";
+	// 	std::cout << "item is " << item << " crc is " << crc << "\n";
 }

@@ -16,6 +16,8 @@ add_executable(ExeQtSfv
 	QtSfv/main.cpp
 	QtSfv/appwindow.h
 	QtSfv/appwindow.cpp
+	QtSfv/sfvthread.h	
+#	QtSfv/sfvthread.cpp	
 	QtSfv/crc32/CRC.h
 )
 
