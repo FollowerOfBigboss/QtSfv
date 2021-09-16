@@ -1,3 +1,6 @@
+#ifndef _SFV_THREAD
+#define _SFV_THREAD
+
 #include <QThread>
 #include "crc32/CRC.h"
 
@@ -26,8 +29,8 @@ public:
 			QFile file(iter);
 			if (!file.open(QIODevice::ReadOnly))
 			{
-				qDebug() << "Failed to open file!";
-				return;
+//				qDebug() << "Failed to open file!";
+				emit AcFileOpenFail(TID, beg + ic);
 			}
 
 			filesize = file.size();
@@ -36,17 +39,21 @@ public:
 			{
 				buffer = file.readAll();
 				crc = CRC::Calculate(buffer.constData(), buffer.size(), CRC::CRC_32());
-				emit InsertCRC(TID, beg + ic, crc);
+				buffer.clear();
+				emit AcAppendCRC(TID, beg + ic, crc);
 
 			}
-
 			ic++;
 		}
-
+		
+		emit AcJobDone(TID);
 	}
 
 signals:
-	void InsertCRC(int TID, int item, uint32_t crc);
-//	void FileOpenFail();
-//	void AcJobDone(int TID);
+	void AcAppendCRC(int TID, int item, uint32_t crc);
+	void AcFileOpenFail(int TID, int item);
+	void AcJobDone(int TID);
+
 };
+
+#endif

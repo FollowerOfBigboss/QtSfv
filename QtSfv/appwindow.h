@@ -11,6 +11,8 @@
 #include <QApplication>
 #include <thread>
 
+#include "sfvthread.h"
+
 
 class QtSfvWindow : public QMainWindow
 {
@@ -20,8 +22,9 @@ public slots:
 	void OnActionOpen();
 	void OnActionClose();
 
-	void OnInsertCrc(int TID, int item, uint32_t crc);
-
+	void OnAppendCrc(int TID, int item, uint32_t crc);
+	void OnFileOpenFail(int TID, int item);
+	void OnThreadJobDone(int TID);
 
 public:
 	QtSfvWindow();
@@ -31,9 +34,11 @@ public:
 
 	std::vector<QString> slookup;
 	QString SfvPath;
-	QFile* file;
 	QTreeWidget* treeWidget;
 	QList<QTreeWidgetItem*> items;
+	std::vector<SfvThread*> ThreadPool;
+	int CountOfThreadsInThreadPool;
 
-
+	void CreateAWorkerThread(int ThreadID, int beg, int partcount);
+	void ClearThreadPool();
 };

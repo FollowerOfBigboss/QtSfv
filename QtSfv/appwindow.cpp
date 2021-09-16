@@ -6,10 +6,7 @@ QtSfvWindow::QtSfvWindow()
 {
 	QMenu* filemenu = menuBar()->addMenu("&File");
 	QAction* openaction = filemenu->addAction("Open");
-	
-	QAction* playaction = filemenu->addAction("Play");
-	QAction* pauseaction = filemenu->addAction("Pause");
-	
+		
 	QAction* closeaction = filemenu->addAction("Close");
 	filemenu->addSeparator();
 	QAction* exitaction = filemenu->addAction("Exit");
@@ -64,13 +61,41 @@ bool QtSfvWindow::ParseLine(QByteArray& line)
 	return true;
 }
 
+void QtSfvWindow::CreateAWorkerThread(int ThreadID, int beg, int partcount)
+{
+	ThreadPool.push_back(new SfvThread);
+	ThreadPool[ThreadID]->TID = ThreadID;
+	ThreadPool[ThreadID]->beg = beg;
+
+	for (int x = 0; x < partcount; x++)
+	{
+		ThreadPool[ThreadID]->list.append(QDir::cleanPath(SfvPath + QDir::separator() + slookup[beg + x]));
+	}
+
+	connect(ThreadPool[ThreadID], &SfvThread::AcAppendCRC, this, &QtSfvWindow::OnAppendCrc);
+	connect(ThreadPool[ThreadID], &SfvThread::AcFileOpenFail, this, &QtSfvWindow::OnFileOpenFail);
+	connect(ThreadPool[ThreadID], &SfvThread::AcJobDone, this, &QtSfvWindow::OnThreadJobDone);
+	ThreadPool[ThreadID]->start();
+}
+
+void QtSfvWindow::ClearThreadPool()
+{
+	if (CountOfThreadsInThreadPool > 0)
+	{
+		CountOfThreadsInThreadPool--;
+		return;
+	}
+
+	ThreadPool.clear();
+	ThreadPool.shrink_to_fit();
+}
+
 void QtSfvWindow::OnActionOpen()
 {
 	QString filename = QFileDialog::getOpenFileName(this, "Open Image", "", "SFV Files (*.sfv)");
 
-	qDebug() << filename;
-	file = new QFile(filename);
-	if (!file->open(QIODevice::ReadOnly))
+	QFile file(filename);
+	if (!file.open(QIODevice::ReadOnly))
 	{
 		QMessageBox::critical(this, "Error", "File couldn't opened!");
 		return;
@@ -80,16 +105,13 @@ void QtSfvWindow::OnActionOpen()
 	QString abPath = abDir.absolutePath();
 	SfvPath = abPath;
 
-	qDebug() << abPath;
-
-
 	treeWidget->clear();
 	items.clear();
 
 	int linecount = 0;
-	while (!file->atEnd()) 
+	while (!file.atEnd()) 
 	{
-		QByteArray line = file->readLine();
+		QByteArray line = file.readLine();
 		if (this->ParseLine(line) == true) linecount++;
 	}
 
@@ -101,121 +123,35 @@ void QtSfvWindow::OnActionOpen()
 	if (isitremains > 0)
 		remains = isitremains;
 
-	SfvThread* sthread;
-
 	int last = 0;
 	int TIDCounter = 0;
 
 	if (remains != 0)
-	{
-		sthread = new SfvThread[parts + 1];
-		
+	{		
 		for (int i = 0; i < parts; i++)
 		{
-			sthread[i].TID = i;
-			sthread[i].beg = last;
-			for (int x = 0; x < 5; x++)
-			{
-					sthread[i].list.append(QDir::cleanPath(SfvPath + QDir::separator() + slookup[last]));
-					last++;
-			}
-#ifdef _DEBUG
-			std::cout << "Thread " << TIDCounter << "\n";
-			for (auto titer : sthread[i].list)
-			{
-				std::cout << titer.toStdString() << "\n";
-			}
-			std::cout << "Thread " << TIDCounter << "End\n";
-#endif
-
-			sthread[i].end = last;
-			connect(&sthread[i], &SfvThread::InsertCRC, this, &QtSfvWindow::OnInsertCrc);
-			sthread[i].start();
+			CreateAWorkerThread(TIDCounter, last, 5);
+			last += 5;
 			TIDCounter++;
 		}
 
-		sthread[parts].TID = TIDCounter;
-		sthread[parts].beg = last;
-		for (int i = 0; i < remains; i++)
-		{
-			sthread[parts].list.append(slookup[last]);
-			last++;
-		}
-		sthread[parts].end = last;
-		connect(&sthread[parts], &SfvThread::InsertCRC, this, &QtSfvWindow::OnInsertCrc);
-		sthread[parts].start();
 
-#ifdef _DEBUG
-		std::cout << "Thread " << TIDCounter << "\n";
-		for (auto titer : sthread[parts].list)
-		{
-			std::cout << titer.toStdString() << "\n";
-		}
-		std::cout << "Thread " << TIDCounter << "End\n";
-#endif
-
-//			for (int x = 0; x < parts; x++)
-//			{
-//				qDebug() << "Part " << x << " Begin";
-//
-//				for (int a = 0; a < 5; a++)
-//				{
-//					qDebug() << slookup[last];
-//					sthread[i].list.append(slookup[last]);
-//					last++;
-//				}
-//
-//				qDebug() << "Part " << x << " End\n";
-//
-//			}
-//
-//			for (int x = 0; x < remains; x++)
-//			{
-//				sthread[i].list.append(slookup[last]);
-//				last++;
-//			}
-//			
-
-	// 		for (auto q: sthread->list)
-	// 		{
-	// 			qDebug() << q;
-	// 		}
-
+		CreateAWorkerThread(TIDCounter, last, remains);
+		CountOfThreadsInThreadPool = TIDCounter;
 	}
 	else
 	{
-		sthread = new SfvThread[parts];
 		for (int i = 0; i < parts; i++)
 		{
-			sthread[i].TID = TIDCounter;
-			sthread[i].beg = last;
-			for (int x = 0; x < 5; x++)
-			{
-				sthread[i].list.append(QDir::cleanPath(SfvPath + QDir::separator() +  slookup[last]));
-				last++;
-			}
-			sthread[i].end = last;
-
-#ifdef _DEBUG
-			std::cout << "Thread " << TIDCounter << "\n";
-			for (auto titer : sthread[i].list)
-			{
-				std::cout << titer.toStdString() << "\n";
-			}
-			std::cout << "Thread " << TIDCounter << "End\n";
-#endif
-
-			connect(&sthread[i], &SfvThread::InsertCRC, this, &QtSfvWindow::OnInsertCrc);
-			sthread[i].start();
+			CreateAWorkerThread(TIDCounter, last, 5);
+			last += 5;
 			TIDCounter++;
 		}
-
+		CountOfThreadsInThreadPool = TIDCounter;
 	}
-// 	connect(sthread, &SfvThread::InsertCRC, this, &QtSfvWindow::OnInsertCrc);
-//	sthread->start();
 
 	slookup.clear();
-	delete file;
+	slookup.shrink_to_fit();
 }
 
 void QtSfvWindow::OnActionClose()
@@ -223,10 +159,25 @@ void QtSfvWindow::OnActionClose()
 
 }
 
-void QtSfvWindow::OnInsertCrc(int TID, int item, uint32_t crc)
+void QtSfvWindow::OnAppendCrc(int TID, int item, uint32_t crc)
 {
 	items[item]->setText(2, QString::number(crc, 16));
+}
 
-	// 	std::cout << "TID is " << TID << "\n";
-	// 	std::cout << "item is " << item << " crc is " << crc << "\n";
+void QtSfvWindow::OnFileOpenFail(int TID, int item)
+{
+	items[item]->setText(3, "Failed to open file!");
+}
+
+void QtSfvWindow::OnThreadJobDone(int TID)
+{
+//	std::cout << "Thread job is done " << TID << "\n";
+	ThreadPool[TID]->exit();
+
+	if (ThreadPool[TID]->wait() == true)
+	{
+		delete ThreadPool[TID];
+	}
+
+	ClearThreadPool();
 }
