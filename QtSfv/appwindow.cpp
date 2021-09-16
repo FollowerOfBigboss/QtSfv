@@ -147,7 +147,7 @@ void QtSfvWindow::OnActionOpen()
 			last += 5;
 			TIDCounter++;
 		}
-		CountOfThreadsInThreadPool = TIDCounter;
+		CountOfThreadsInThreadPool = TIDCounter - 1;
 	}
 
 	slookup.clear();
@@ -171,10 +171,17 @@ void QtSfvWindow::OnFileOpenFail(int TID, int item)
 
 void QtSfvWindow::OnThreadJobDone(int TID)
 {
-//	std::cout << "Thread job is done " << TID << "\n";
 	ThreadPool[TID]->exit();
-
-	if (ThreadPool[TID]->wait() == true)
+	
+	if (ThreadPool[TID]->isFinished() != true)
+	{
+		bool wait = ThreadPool[TID]->wait();
+		if (wait == true)
+		{
+			delete ThreadPool[TID];
+		}
+	}
+	else
 	{
 		delete ThreadPool[TID];
 	}

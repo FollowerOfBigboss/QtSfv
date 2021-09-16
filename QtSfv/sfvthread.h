@@ -29,7 +29,6 @@ public:
 			QFile file(iter);
 			if (!file.open(QIODevice::ReadOnly))
 			{
-//				qDebug() << "Failed to open file!";
 				emit AcFileOpenFail(TID, beg + ic);
 			}
 
