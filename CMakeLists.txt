@@ -10,14 +10,13 @@ set(CMAKE_AUTOMOC ON)
 find_package(QT NAMES Qt6 Qt5 COMPONENTS Core Widgets REQUIRED)
 find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Core Widgets REQUIRED)
 message(STATUS "Using Qt${QT_VERSION_MAJOR}")
-set(QT_QMAKE_EXECUTABLE "${CMAKE_PREFIX_PATH}/bin/qmake.exe")
 
 add_executable(ExeQtSfv
 	QtSfv/main.cpp
 	QtSfv/appwindow.h
 	QtSfv/appwindow.cpp
-	QtSfv/debugdialog.h
-	QtSfv/debugdialog.cpp
+	QtSfv/settingsdialog.h
+	QtSfv/settingsdialog.cpp
 	QtSfv/sfvthread.h	
 	QtSfv/sfvthread.cpp	
 	QtSfv/crc32/CRC.h

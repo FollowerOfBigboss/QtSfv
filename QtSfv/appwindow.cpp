@@ -4,6 +4,10 @@
 
 QtSfvWindow::QtSfvWindow()
 {
+	settingsdiag = nullptr;
+	FilePerThread = 5;
+	settingsdiag = new SettingsDialog(this);
+
 	this->setWindowIcon(QIcon(R"(QtSfv2.png)"));
 
 	QMenu* filemenu = menuBar()->addMenu("&File");
@@ -17,11 +21,8 @@ QtSfvWindow::QtSfvWindow()
 	QAction* aboutaction = helpmenu->addAction("About");
 	QAction* aboutqtaction = helpmenu->addAction("About Qt");
 
-#ifdef _DEBUG
-		QMenu* debugmenu = menuBar()->addMenu("&Debug");
-		QAction* debugaction = debugmenu->addAction("Debug");
-		connect(debugaction, &QAction::triggered, this, &QtSfvWindow::OnDebugWindowRequested);
-#endif
+	QMenu* settings = menuBar()->addMenu("&Settings");
+	QAction* settingsaction = settings->addAction("Settings");
 
 
 	connect(openaction, &QAction::triggered, this, &QtSfvWindow::OnActionOpen);
@@ -32,41 +33,53 @@ QtSfvWindow::QtSfvWindow()
 	connect(aboutqtaction, &QAction::triggered, this, [&] { QMessageBox::aboutQt(this); });
 	connect(exitaction, &QAction::triggered, this, [&] { this->close(); });
 
+	connect(settingsaction, &QAction::triggered, this, &QtSfvWindow::OnSettingsWindowRequested);
+
+	connect(this, &QtSfvWindow::UpdateDialogSpinValue, settingsdiag, &SettingsDialog::OnUpdateSpinValue);
+	connect(settingsdiag, &SettingsDialog::UpdateFilePerThread, this, &QtSfvWindow::OnUpdateFilePerThread);
+
 	treeWidget = new QTreeWidget(this);
 	treeWidget->setRootIsDecorated(false);
 	treeWidget->setAllColumnsShowFocus(true);
 	treeWidget->setSelectionMode(QAbstractItemView::SelectionMode::ExtendedSelection);
 	treeWidget->setColumnCount(4);
 
-	statusBar()->showMessage(tr("Ready"));
-
 	QStringList headers = {"File Name","CRC","Calculated CRC","Status"};
 	treeWidget->setHeaderLabels(headers);
 
 	this->setCentralWidget(treeWidget);
 	treeWidget->expandAll();
-
+	
+	label.setText("Ready!");
+	statusBar()->addWidget(&label);
+	this->resize(600, 400);
 }
 
-void QtSfvWindow::closeEvent(QCloseEvent* closeEvent)
-{
-
-}
 
 bool QtSfvWindow::ParseLine(QByteArray& line)
 {
 	if (line.startsWith(';') == true)
 		return false;
 
-	QByteArrayList sline = line.split(' ');
-	slookup.push_back(sline[0]);
+	int findfirst =  line.indexOf(' ');
+	QByteArray s0 = line.mid(0, findfirst);
+	QByteArray s1 = line.mid(findfirst);
+	slookup.push_back(s0);
 
-	// Remove newline character
-	sline[1].remove(sline[1].indexOf('\n'), 1);
+	int chsize = s1.size();
+	for (int i = 0; i < chsize; i++)
+	{
+		if ( s1[i] == ' ' || s1[i] == '\x00' || s1[i] == '\n' || s1[i] == '\r' )
+		{
+			s1.remove(i, 1);
+			chsize = s1.size();
+			i = -1;
+		}
+	}
 
 	QTreeWidgetItem* item = new QTreeWidgetItem();
-	item->setText(0, sline[0]);
-	item->setText(1, sline[1]);
+	item->setText(0, s0);
+	item->setText(1, s1);
 	items.append(item);
 
 	return true;
@@ -86,15 +99,17 @@ void QtSfvWindow::CreateAWorkerThread(int ThreadID, int beg, int partcount)
 	connect(ThreadPool[ThreadID], &SfvThread::AcAppendCRC, this, &QtSfvWindow::OnAppendCrc);
 	connect(ThreadPool[ThreadID], &SfvThread::AcFileOpenFail, this, &QtSfvWindow::OnFileOpenFail);
 	connect(ThreadPool[ThreadID], &SfvThread::AcJobDone, this, &QtSfvWindow::OnThreadJobDone);
+
 	ThreadPool[ThreadID]->start();
 }
 
 void QtSfvWindow::ClearThreadPool()
 {
-	if (CountOfThreadsInThreadPool > 0)
+	for (int i = 0; i < ThreadPool.size(); i++)
 	{
-		CountOfThreadsInThreadPool--;
-		return;
+			ThreadPool[i]->requestInterruption();
+			ThreadPool[i]->wait();
+			delete ThreadPool[i];
 	}
 
 	ThreadPool.clear();
@@ -116,6 +131,8 @@ void QtSfvWindow::OnActionOpen()
 	QString abPath = abDir.absolutePath();
 	SfvPath = abPath;
 
+	ClearThreadPool();
+
 	treeWidget->clear();
 	items.clear();
 
@@ -128,9 +145,9 @@ void QtSfvWindow::OnActionOpen()
 
 	treeWidget->insertTopLevelItems(0, items);
 
-	int parts = linecount / 5;
+	int parts = linecount / FilePerThread;
 	int remains = 0;
-	int isitremains = linecount % 5;
+	int isitremains = linecount % FilePerThread;
 	if (isitremains > 0)
 		remains = isitremains;
 
@@ -141,8 +158,8 @@ void QtSfvWindow::OnActionOpen()
 	{		
 		for (int i = 0; i < parts; i++)
 		{
-			CreateAWorkerThread(TIDCounter, last, 5);
-			last += 5;
+			CreateAWorkerThread(TIDCounter, last, FilePerThread);
+			last += FilePerThread;
 			TIDCounter++;
 		}
 
@@ -154,8 +171,8 @@ void QtSfvWindow::OnActionOpen()
 	{
 		for (int i = 0; i < parts; i++)
 		{
-			CreateAWorkerThread(TIDCounter, last, 5);
-			last += 5;
+			CreateAWorkerThread(TIDCounter, last, FilePerThread);
+			last += FilePerThread;
 			TIDCounter++;
 		}
 		CountOfThreadsInThreadPool = TIDCounter - 1;
@@ -167,12 +184,11 @@ void QtSfvWindow::OnActionOpen()
 
 void QtSfvWindow::OnActionClose()
 {
-
+	ClearThreadPool();
 }
 
 void QtSfvWindow::OnAppendCrc(int TID, int item, uint32_t crc)
 {
-
 	items[item]->setText(2, QString::number(crc, 16));
 
 	QString str = items[item]->text(1);
@@ -196,26 +212,16 @@ void QtSfvWindow::OnFileOpenFail(int TID, int item)
 
 void QtSfvWindow::OnThreadJobDone(int TID)
 {
-	ThreadPool[TID]->exit();
-	
-	if (ThreadPool[TID]->isFinished() != true)
-	{
-		bool wait = ThreadPool[TID]->wait();
-		if (wait == true)
-		{
-			delete ThreadPool[TID];
-		}
-	}
-	else
-	{
-		delete ThreadPool[TID];
-	}
-
-	ClearThreadPool();
+	printf("Thread %i job is done!\n", TID);
 }
 
-void QtSfvWindow::OnDebugWindowRequested()
+void QtSfvWindow::OnSettingsWindowRequested()
 {
-	DebugDialog* diag = new DebugDialog();
-	diag->show();
+	emit UpdateDialogSpinValue(FilePerThread);
+	settingsdiag->exec();
+}
+
+void QtSfvWindow::OnUpdateFilePerThread(int val)
+{
+	FilePerThread = val;
 }
