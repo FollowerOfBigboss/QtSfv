@@ -9,10 +9,10 @@
 #include <QProgressDialog>
 #include <QThread>
 #include <QApplication>
-#include <thread>
+#include <QStatusBar>
 
 #include "sfvthread.h"
-
+#include "debugdialog.h"
 
 class QtSfvWindow : public QMainWindow
 {
@@ -25,6 +25,8 @@ public slots:
 	void OnAppendCrc(int TID, int item, uint32_t crc);
 	void OnFileOpenFail(int TID, int item);
 	void OnThreadJobDone(int TID);
+
+	void OnDebugWindowRequested();
 
 public:
 	QtSfvWindow();

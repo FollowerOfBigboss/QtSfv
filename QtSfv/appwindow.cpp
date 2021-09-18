@@ -4,6 +4,8 @@
 
 QtSfvWindow::QtSfvWindow()
 {
+	this->setWindowIcon(QIcon(R"(QtSfv2.png)"));
+
 	QMenu* filemenu = menuBar()->addMenu("&File");
 	QAction* openaction = filemenu->addAction("Open");
 		
@@ -14,6 +16,13 @@ QtSfvWindow::QtSfvWindow()
 	QMenu* helpmenu = menuBar()->addMenu("&Help");
 	QAction* aboutaction = helpmenu->addAction("About");
 	QAction* aboutqtaction = helpmenu->addAction("About Qt");
+
+#ifdef _DEBUG
+		QMenu* debugmenu = menuBar()->addMenu("&Debug");
+		QAction* debugaction = debugmenu->addAction("Debug");
+		connect(debugaction, &QAction::triggered, this, &QtSfvWindow::OnDebugWindowRequested);
+#endif
+
 
 	connect(openaction, &QAction::triggered, this, &QtSfvWindow::OnActionOpen);
 	connect(closeaction, &QAction::triggered, this, &QtSfvWindow::OnActionClose);
@@ -28,6 +37,8 @@ QtSfvWindow::QtSfvWindow()
 	treeWidget->setAllColumnsShowFocus(true);
 	treeWidget->setSelectionMode(QAbstractItemView::SelectionMode::ExtendedSelection);
 	treeWidget->setColumnCount(4);
+
+	statusBar()->showMessage(tr("Ready"));
 
 	QStringList headers = {"File Name","CRC","Calculated CRC","Status"};
 	treeWidget->setHeaderLabels(headers);
@@ -161,7 +172,21 @@ void QtSfvWindow::OnActionClose()
 
 void QtSfvWindow::OnAppendCrc(int TID, int item, uint32_t crc)
 {
+
 	items[item]->setText(2, QString::number(crc, 16));
+
+	QString str = items[item]->text(1);
+	uint32_t crctocompare = str.toUInt(0, 16);
+
+	if (crctocompare == crc)
+	{
+		items[item]->setText(3, "File OK");
+	}
+	else
+	{
+		items[item]->setText(3, "File Corrupted!");
+	}
+
 }
 
 void QtSfvWindow::OnFileOpenFail(int TID, int item)
@@ -187,4 +212,10 @@ void QtSfvWindow::OnThreadJobDone(int TID)
 	}
 
 	ClearThreadPool();
+}
+
+void QtSfvWindow::OnDebugWindowRequested()
+{
+	DebugDialog* diag = new DebugDialog();
+	diag->show();
 }
