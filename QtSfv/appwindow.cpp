@@ -4,9 +4,6 @@
 
 QtSfvWindow::QtSfvWindow()
 {
-	settingsdiag = nullptr;
-	FilePerThread = 5;
-	settingsdiag = new SettingsDialog(this);
 
 	this->setWindowIcon(QIcon(R"(QtSfv2.png)"));
 
@@ -17,12 +14,15 @@ QtSfvWindow::QtSfvWindow()
 	filemenu->addSeparator();
 	QAction* exitaction = filemenu->addAction("Exit");
 
+	QMenu* settings = menuBar()->addMenu("&Settings");
+	QAction* settingsaction = settings->addAction("Settings");
+
 	QMenu* helpmenu = menuBar()->addMenu("&Help");
 	QAction* aboutaction = helpmenu->addAction("About");
 	QAction* aboutqtaction = helpmenu->addAction("About Qt");
 
-	QMenu* settings = menuBar()->addMenu("&Settings");
-	QAction* settingsaction = settings->addAction("Settings");
+	settingsdiag = new SettingsDialog(this);
+	ThreadCount = 5;
 
 
 	connect(openaction, &QAction::triggered, this, &QtSfvWindow::OnActionOpen);
@@ -44,7 +44,7 @@ QtSfvWindow::QtSfvWindow()
 	treeWidget->setSelectionMode(QAbstractItemView::SelectionMode::ExtendedSelection);
 	treeWidget->setColumnCount(4);
 
-	QStringList headers = {"File Name","CRC","Calculated CRC","Status"};
+	QStringList headers = {"File Name", "CRC", "Calculated CRC", "Status"};
 	treeWidget->setHeaderLabels(headers);
 
 	this->setCentralWidget(treeWidget);
@@ -55,7 +55,6 @@ QtSfvWindow::QtSfvWindow()
 	this->resize(600, 400);
 }
 
-
 bool QtSfvWindow::ParseLine(QByteArray& line)
 {
 	if (line.startsWith(';') == true)
@@ -65,6 +64,7 @@ bool QtSfvWindow::ParseLine(QByteArray& line)
 	QByteArray s0 = line.mid(0, findfirst);
 	QByteArray s1 = line.mid(findfirst);
 	slookup.push_back(s0);
+	crclookup.push_back(s1.toStdString());
 
 	int chsize = s1.size();
 	for (int i = 0; i < chsize; i++)
@@ -112,6 +112,17 @@ void QtSfvWindow::ClearThreadPool()
 			delete ThreadPool[i];
 	}
 
+	for (int i = 0; i < items.size(); i++)
+	{
+		delete items[i];
+	}
+	
+	items.clear();
+	items.shrink_to_fit();
+
+	crclookup.clear();
+	crclookup.shrink_to_fit();
+
 	ThreadPool.clear();
 	ThreadPool.shrink_to_fit();
 }
@@ -119,6 +130,11 @@ void QtSfvWindow::ClearThreadPool()
 void QtSfvWindow::OnActionOpen()
 {
 	QString filename = QFileDialog::getOpenFileName(this, "Open Image", "", "SFV Files (*.sfv)");
+	if (filename.isEmpty())
+	{
+		return;
+	}
+
 
 	QFile file(filename);
 	if (!file.open(QIODevice::ReadOnly))
@@ -136,6 +152,7 @@ void QtSfvWindow::OnActionOpen()
 	treeWidget->clear();
 	items.clear();
 
+	FinishedThreadCount = 0;
 	int linecount = 0;
 	while (!file.atEnd()) 
 	{
@@ -145,37 +162,24 @@ void QtSfvWindow::OnActionOpen()
 
 	treeWidget->insertTopLevelItems(0, items);
 
-	int parts = linecount / FilePerThread;
-	int remains = 0;
-	int isitremains = linecount % FilePerThread;
-	if (isitremains > 0)
-		remains = isitremains;
+	int PartsPerThread = linecount / ThreadCount;
+	int remain = linecount % ThreadCount;
 
-	int last = 0;
-	int TIDCounter = 0;
-
-	if (remains != 0)
-	{		
-		for (int i = 0; i < parts; i++)
-		{
-			CreateAWorkerThread(TIDCounter, last, FilePerThread);
-			last += FilePerThread;
-			TIDCounter++;
-		}
-
-
-		CreateAWorkerThread(TIDCounter, last, remains);
-		CountOfThreadsInThreadPool = TIDCounter;
-	}
-	else
+	int first = 1;
+	for (int i = 0; i < ThreadCount; i++)
 	{
-		for (int i = 0; i < parts; i++)
+		CreateAWorkerThread(i, i * PartsPerThread, PartsPerThread);
+		if (first == 1)
 		{
-			CreateAWorkerThread(TIDCounter, last, FilePerThread);
-			last += FilePerThread;
-			TIDCounter++;
+			beginclock = perfclock.now();
+			first = 0;
 		}
-		CountOfThreadsInThreadPool = TIDCounter - 1;
+	}
+
+	// If there are remaining parts then create a thread for them
+	if (remain != 0)
+	{
+		CreateAWorkerThread(ThreadCount, ThreadCount * PartsPerThread, remain);
 	}
 
 	slookup.clear();
@@ -189,9 +193,8 @@ void QtSfvWindow::OnActionClose()
 
 void QtSfvWindow::OnAppendCrc(int TID, int item, uint32_t crc)
 {
-	items[item]->setText(2, QString::number(crc, 16));
-
-	QString str = items[item]->text(1);
+	items[item]->setText(2, QString::number(crc, 16));	
+	QString str = crclookup[item].c_str();	
 	uint32_t crctocompare = str.toUInt(0, 16);
 
 	if (crctocompare == crc)
@@ -212,16 +215,25 @@ void QtSfvWindow::OnFileOpenFail(int TID, int item)
 
 void QtSfvWindow::OnThreadJobDone(int TID)
 {
-	printf("Thread %i job is done!\n", TID);
+	FinishedThreadCount++;
+	if (FinishedThreadCount == ThreadPool.size())
+	{
+		endclock =  perfclock.now();
+		auto militime = std::chrono::duration_cast<std::chrono::milliseconds>(endclock - beginclock).count();
+		auto sectime = std::chrono::duration_cast<std::chrono::seconds>(endclock - beginclock).count();
+
+//		qDebug() << militime;
+//		qDebug() << sectime;
+	}
 }
 
 void QtSfvWindow::OnSettingsWindowRequested()
 {
-	emit UpdateDialogSpinValue(FilePerThread);
+	emit UpdateDialogSpinValue(ThreadCount);
 	settingsdiag->exec();
 }
 
 void QtSfvWindow::OnUpdateFilePerThread(int val)
 {
-	FilePerThread = val;
+	ThreadCount = val;
 }

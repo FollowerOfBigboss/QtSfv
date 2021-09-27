@@ -1,4 +1,5 @@
 #include <iostream>
+#include <chrono>
 
 #include <QMainWindow>
 #include <QMenuBar>
@@ -41,17 +42,21 @@ public:
 	bool ParseLine(QByteArray& bytearray);
 
 	std::vector<QString> slookup;
+	std::vector<std::string> crclookup;
+
 	QString SfvPath;
 	QTreeWidget* treeWidget;
 	QList<QTreeWidgetItem*> items;
 	std::vector<SfvThread*> ThreadPool;
 	QLabel label;
-	int CountOfThreadsInThreadPool;
+	int FinishedThreadCount;
 	SettingsDialog* settingsdiag;
 
-	std::vector<int> jobsfinishedthreads;
+	std::chrono::high_resolution_clock perfclock;
+	std::chrono::high_resolution_clock::time_point beginclock;
+	std::chrono::high_resolution_clock::time_point endclock;
 
-	int FilePerThread;
+	int ThreadCount;
 
 	void CreateAWorkerThread(int ThreadID, int beg, int partcount);
 	void ClearThreadPool();

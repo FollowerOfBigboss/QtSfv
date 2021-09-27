@@ -8,7 +8,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent)
 	hbox = new QHBoxLayout();
 
 	label = new QLabel();
-	label->setText("File Count Per Thread");
+	label->setText("Thread count for job");
+	label->setToolTip("It sets desired thread count for a job.\nIt may decrease calculation speed for multiple files.\nIt depends on your cpu and storage device.");
 	threadSpinbox = new QSpinBox();
 	threadSpinbox->setRange(1, 100);
 

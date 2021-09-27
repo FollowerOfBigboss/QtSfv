@@ -20,6 +20,7 @@ add_executable(ExeQtSfv
 	QtSfv/sfvthread.h	
 	QtSfv/sfvthread.cpp	
 	QtSfv/crc32/CRC.h
+	QtSfv/crc32/CRC.cpp
 )
 
 target_link_libraries(ExeQtSfv Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Core)

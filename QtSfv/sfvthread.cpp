@@ -32,7 +32,7 @@ void SfvThread::run()
 					return;
 
 				buffer = file.readAll();
-				crc = CRC::Calculate(buffer.constData(), buffer.size(), CRC::CRC_32());
+				crc = CRC32::Calculate(buffer.constData(), buffer.size());
 				buffer.clear();
 				emit AcAppendCRC(TID, beg + ic, crc);
 
@@ -42,7 +42,7 @@ void SfvThread::run()
 				if (this->isInterruptionRequested())
 					return;
 
-				int counter = filesize;
+				uint64_t counter = filesize;
 				crc = 0;
 				while (counter > 0)
 				{
@@ -53,13 +53,13 @@ void SfvThread::run()
 					{
 						buffer = file.read(MB(1));
 						counter -= MB(1);
-						crc = CRC::Calculate(buffer.constData(), buffer.size(), CRC::CRC_32(), crc);
+						crc = CRC32::Calculate(buffer.constData(), buffer.size(), crc);
 						buffer.clear();
 					}
 					else
 					{
 						buffer = file.read(counter);
-						crc = CRC::Calculate(buffer.constData(), buffer.size(), CRC::CRC_32(), crc);
+						crc = CRC32::Calculate(buffer.constData(), buffer.size(), crc);
 						buffer.clear();
 						counter -= counter;
 					}
