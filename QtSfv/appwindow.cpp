@@ -23,6 +23,7 @@ QtSfvWindow::QtSfvWindow()
 
 	settingsdiag = new SettingsDialog(this);
 	ThreadCount = 5;
+	ChunkSize = MB(1);
 
 
 	connect(openaction, &QAction::triggered, this, &QtSfvWindow::OnActionOpen);
@@ -36,7 +37,10 @@ QtSfvWindow::QtSfvWindow()
 	connect(settingsaction, &QAction::triggered, this, &QtSfvWindow::OnSettingsWindowRequested);
 
 	connect(this, &QtSfvWindow::UpdateDialogSpinValue, settingsdiag, &SettingsDialog::OnUpdateSpinValue);
-	connect(settingsdiag, &SettingsDialog::UpdateFilePerThread, this, &QtSfvWindow::OnUpdateFilePerThread);
+	connect(settingsdiag, &SettingsDialog::UpdateThreadCountForJob, this, &QtSfvWindow::OnUpdateThreadCountForJob);
+
+	connect(this, &QtSfvWindow::UpdateDialogChunkValue, settingsdiag, &SettingsDialog::OnUpdateChunkValue);
+	connect(settingsdiag, &SettingsDialog::UpdateChunkSize, this, &QtSfvWindow::OnUpdateChunkValue);
 
 	treeWidget = new QTreeWidget(this);
 	treeWidget->setRootIsDecorated(false);
@@ -50,9 +54,19 @@ QtSfvWindow::QtSfvWindow()
 	this->setCentralWidget(treeWidget);
 	treeWidget->expandAll();
 	
-	label.setText("Ready!");
-	statusBar()->addWidget(&label);
+	label.setText("Ready for an action!");
+
+	label2.setText("Idling...");
+
+	progressBar = new QProgressBar(this);
+	statusBar()->setLayoutDirection(Qt::LayoutDirection::LeftToRight);
+	statusBar()->addPermanentWidget(&label);
+	statusBar()->addPermanentWidget(progressBar, 1);
+	statusBar()->addPermanentWidget(&label2);
+
 	this->resize(600, 400);
+	
+	connect(&timer, &QTimer::timeout, this, &QtSfvWindow::UpdateTimer);
 }
 
 bool QtSfvWindow::ParseLine(QByteArray& line)
@@ -85,11 +99,12 @@ bool QtSfvWindow::ParseLine(QByteArray& line)
 	return true;
 }
 
-void QtSfvWindow::CreateAWorkerThread(int ThreadID, int beg, int partcount)
+void QtSfvWindow::CreateAWorkerThread(uint32_t ThreadID, uint32_t beg, uint32_t partcount)
 {
 	ThreadPool.push_back(new SfvThread);
 	ThreadPool[ThreadID]->TID = ThreadID;
 	ThreadPool[ThreadID]->beg = beg;
+	ThreadPool[ThreadID]->ChunkSize = this->ChunkSize;
 
 	for (int x = 0; x < partcount; x++)
 	{
@@ -153,19 +168,25 @@ void QtSfvWindow::OnActionOpen()
 	items.clear();
 
 	FinishedThreadCount = 0;
-	int linecount = 0;
+	FileCount = 0;
 	while (!file.atEnd()) 
 	{
 		QByteArray line = file.readLine();
-		if (this->ParseLine(line) == true) linecount++;
+		if (this->ParseLine(line) == true) FileCount++;
 	}
+
 
 	treeWidget->insertTopLevelItems(0, items);
 
-	int PartsPerThread = linecount / ThreadCount;
-	int remain = linecount % ThreadCount;
+	int PartsPerThread = FileCount / ThreadCount;
+	int remain = FileCount % ThreadCount;
 
 	int first = 1;
+	label.setText("Job is still in progress... Please be patient");
+	timer.start(980);
+	progressBar->setRange(0, FileCount);
+	progressBar->setValue(0);
+	progressBar->setFormat(QString("%%p - %v/%m"));
 	for (int i = 0; i < ThreadCount; i++)
 	{
 		CreateAWorkerThread(i, i * PartsPerThread, PartsPerThread);
@@ -189,9 +210,12 @@ void QtSfvWindow::OnActionOpen()
 void QtSfvWindow::OnActionClose()
 {
 	ClearThreadPool();
+	timer.stop();
+	label2.setText("");
+	progressBar->reset();
 }
 
-void QtSfvWindow::OnAppendCrc(int TID, int item, uint32_t crc)
+void QtSfvWindow::OnAppendCrc(uint32_t TID, uint32_t item, uint32_t crc)
 {
 	items[item]->setText(2, QString::number(crc, 16));	
 	QString str = crclookup[item].c_str();	
@@ -205,15 +229,16 @@ void QtSfvWindow::OnAppendCrc(int TID, int item, uint32_t crc)
 	{
 		items[item]->setText(3, "File Corrupted!");
 	}
-
+	progressBar->setValue(progressBar->value() + 1);
 }
 
-void QtSfvWindow::OnFileOpenFail(int TID, int item)
+void QtSfvWindow::OnFileOpenFail(uint32_t TID, uint32_t item)
 {
 	items[item]->setText(3, "Failed to open file!");
+	progressBar->setValue(progressBar->value() + 1);
 }
 
-void QtSfvWindow::OnThreadJobDone(int TID)
+void QtSfvWindow::OnThreadJobDone(uint32_t TID)
 {
 	FinishedThreadCount++;
 	if (FinishedThreadCount == ThreadPool.size())
@@ -222,18 +247,31 @@ void QtSfvWindow::OnThreadJobDone(int TID)
 		auto militime = std::chrono::duration_cast<std::chrono::milliseconds>(endclock - beginclock).count();
 		auto sectime = std::chrono::duration_cast<std::chrono::seconds>(endclock - beginclock).count();
 
-//		qDebug() << militime;
-//		qDebug() << sectime;
+		label.setText("Job finished!");
+		timer.stop();
 	}
 }
 
 void QtSfvWindow::OnSettingsWindowRequested()
 {
 	emit UpdateDialogSpinValue(ThreadCount);
+	emit UpdateDialogChunkValue(ChunkSize);
 	settingsdiag->exec();
 }
 
-void QtSfvWindow::OnUpdateFilePerThread(int val)
+void QtSfvWindow::OnUpdateThreadCountForJob(uint32_t val)
 {
 	ThreadCount = val;
+}
+
+void QtSfvWindow::OnUpdateChunkValue(uint32_t val)
+{
+	ChunkSize = MB(val);
+}
+
+void QtSfvWindow::UpdateTimer()
+{
+	endclock = perfclock.now();
+	auto sectime = std::chrono::duration_cast<std::chrono::seconds>(endclock - beginclock).count();
+	label2.setText(QVariant(sectime).toString());
 }

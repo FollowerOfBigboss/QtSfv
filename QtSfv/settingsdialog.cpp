@@ -1,5 +1,7 @@
 #include "settingsdialog.h"
 
+#define B2MB(x) x >> 20
+
 SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent)
 {
 	this->setWindowTitle("Settings");
@@ -13,9 +15,22 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent)
 	threadSpinbox = new QSpinBox();
 	threadSpinbox->setRange(1, 100);
 
+	hbox2 = new QHBoxLayout();
+	label2 = new QLabel();
+	label2->setText("Chunk Size (MB)");
+	label2->setToolTip("Sets chunk size which will be used for every thread.");
+	spinbox2 = new QSpinBox();
+	spinbox2->setMinimum(0);
+
+
 	hbox->addWidget(label);
 	hbox->addWidget(threadSpinbox);
+	hbox2->addWidget(label2);
+	hbox2->addWidget(spinbox2);
 	vbox->addLayout(hbox);
+	vbox->addLayout(hbox2);
+
+
 	vbox->addStretch(1);
 
 	buttonbox = new QDialogButtonBox(QDialogButtonBox::StandardButton::Cancel | QDialogButtonBox::StandardButton::Save);
@@ -29,13 +44,19 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent)
 
 
 
-void SettingsDialog::OnUpdateSpinValue(int val)
+void SettingsDialog::OnUpdateSpinValue(uint32_t val)
 {
 	threadSpinbox->setValue(val);
 }
 
 void SettingsDialog::OnActionSaveSettings()
 {
-	emit UpdateFilePerThread(threadSpinbox->value());
+	emit UpdateThreadCountForJob(threadSpinbox->value());
+	emit UpdateChunkSize(spinbox2->value());
 	this->close();
+}
+
+void SettingsDialog::OnUpdateChunkValue(uint32_t val)
+{
+	spinbox2->setValue(B2MB(val));
 }

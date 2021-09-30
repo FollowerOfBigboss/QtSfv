@@ -11,16 +11,17 @@ class SfvThread : public QThread
 {
 	Q_OBJECT
 public:
-	int TID;
+	uint32_t TID;
+	uint32_t ChunkSize;
 	QStringList list;
-	int beg;
+	uint32_t beg;
 
 	void run();
 
 signals:
-	void AcAppendCRC(int TID, int item, uint32_t crc);
-	void AcFileOpenFail(int TID, int item);
-	void AcJobDone(int TID);
+	void AcAppendCRC(uint32_t TID, uint32_t item, uint32_t crc);
+	void AcFileOpenFail(uint32_t TID, uint32_t item);
+	void AcJobDone(uint32_t TID);
 };
 
 #endif

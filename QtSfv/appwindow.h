@@ -12,6 +12,9 @@
 #include <QApplication>
 #include <QStatusBar>
 #include <QLabel>
+#include <QTimer>
+#include <QProgressBar>
+
 
 #include "sfvthread.h"
 #include "settingsdialog.h"
@@ -24,16 +27,20 @@ public slots:
 	void OnActionOpen();
 	void OnActionClose();
 
-	void OnAppendCrc(int TID, int item, uint32_t crc);
-	void OnFileOpenFail(int TID, int item);
+	void OnAppendCrc(uint32_t TID, uint32_t item, uint32_t crc);
+	void OnFileOpenFail(uint32_t TID, uint32_t item);
 
-	void OnThreadJobDone(int TID);
+	void OnThreadJobDone(uint32_t TID);
 
 	void OnSettingsWindowRequested();
-	void OnUpdateFilePerThread(int val);
+	void OnUpdateThreadCountForJob(uint32_t val);
+	void OnUpdateChunkValue(uint32_t val);
+
+	void UpdateTimer();
 
 signals:
-	void UpdateDialogSpinValue(int val);
+	void UpdateDialogSpinValue(uint32_t val);
+	void UpdateDialogChunkValue(uint32_t val);
 
 public:
 	QtSfvWindow();
@@ -43,22 +50,28 @@ public:
 
 	std::vector<QString> slookup;
 	std::vector<std::string> crclookup;
+	std::vector<SfvThread*> ThreadPool;
 
 	QString SfvPath;
 	QTreeWidget* treeWidget;
 	QList<QTreeWidgetItem*> items;
-	std::vector<SfvThread*> ThreadPool;
 	QLabel label;
-	int FinishedThreadCount;
+	QLabel label2;
 	SettingsDialog* settingsdiag;
+	QTimer timer;
+	QProgressBar* progressBar;
+
 
 	std::chrono::high_resolution_clock perfclock;
 	std::chrono::high_resolution_clock::time_point beginclock;
 	std::chrono::high_resolution_clock::time_point endclock;
 
-	int ThreadCount;
+	uint64_t FileCount;
+	uint32_t ThreadCount;
+	uint32_t FinishedThreadCount;
+	uint32_t ChunkSize;
 
-	void CreateAWorkerThread(int ThreadID, int beg, int partcount);
+	void CreateAWorkerThread(uint32_t ThreadID, uint32_t beg, uint32_t partcount);
 	void ClearThreadPool();
 
 };

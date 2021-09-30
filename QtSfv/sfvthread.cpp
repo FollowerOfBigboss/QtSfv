@@ -2,6 +2,10 @@
 
 #include <QFile>
 
+#define CheckForInterrupt if (this->isInterruptionRequested()) return
+
+
+
 void SfvThread::run()
 {
 	uint32_t crc = 0;
@@ -9,11 +13,10 @@ void SfvThread::run()
 	uint64_t counter;
 	QByteArray buffer;
 
-	int ic = 0;
+	uint32_t ic = 0;
 	for (auto iter : list)
 	{
-		if (this->isInterruptionRequested())
-			return;
+		CheckForInterrupt;
 
 		QFile file(iter);
 		bool bFileOpened = file.open(QIODevice::ReadOnly);
@@ -26,41 +29,41 @@ void SfvThread::run()
 		filesize = file.size();
 		if (bFileOpened == true)
 		{
-			if (filesize < MB(10))
+			if (filesize < this->ChunkSize)
 			{
-				if (this->isInterruptionRequested())
-					return;
+				CheckForInterrupt;
 
 				buffer = file.readAll();
 				crc = CRC32::Calculate(buffer.constData(), buffer.size());
 				buffer.clear();
+				buffer.shrink_to_fit();
 				emit AcAppendCRC(TID, beg + ic, crc);
 
 			}
 			else
 			{
-				if (this->isInterruptionRequested())
-					return;
+				CheckForInterrupt;
 
 				uint64_t counter = filesize;
 				crc = 0;
 				while (counter > 0)
 				{
-					if (this->isInterruptionRequested())
-						return;
+					CheckForInterrupt;
 
-					if (counter > MB(1))
+					if (counter > this->ChunkSize)
 					{
-						buffer = file.read(MB(1));
-						counter -= MB(1);
+						buffer = file.read(this->ChunkSize);
+						counter -= this->ChunkSize;
 						crc = CRC32::Calculate(buffer.constData(), buffer.size(), crc);
 						buffer.clear();
+						buffer.shrink_to_fit();
 					}
 					else
 					{
 						buffer = file.read(counter);
 						crc = CRC32::Calculate(buffer.constData(), buffer.size(), crc);
 						buffer.clear();
+						buffer.shrink_to_fit();
 						counter -= counter;
 					}
 				}

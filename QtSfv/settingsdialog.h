@@ -16,20 +16,26 @@ class SettingsDialog : public QDialog
 
 public:
 	SettingsDialog(QWidget* parent = 0);
+	
+	QVBoxLayout* vbox;
 
 	QLabel* label;
-	QVBoxLayout* vbox;
 	QHBoxLayout* hbox;
 	QSpinBox* threadSpinbox;
-	QPushButton* button;
 	QDialogButtonBox* buttonbox;
 
+	QHBoxLayout* hbox2;
+	QLabel* label2;
+	QSpinBox* spinbox2;
+
 public slots:
-	void OnUpdateSpinValue(int val);
+	void OnUpdateSpinValue(uint32_t val);
 	void OnActionSaveSettings();
+	void OnUpdateChunkValue(uint32_t val);
 
 signals:
-	void UpdateFilePerThread(int val);
+	void UpdateThreadCountForJob(uint32_t val);
+	void UpdateChunkSize(uint32_t val);
 };
 
 #endif
